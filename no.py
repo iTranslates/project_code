@@ -7,9 +7,10 @@ from PIL import Image, ImageDraw, ImageFont
 import speech_recognition as sr
 import picamera
 import RPi.GPIO as GPIO
-import os
 
+import os
 os.system("sudo amixer cset numid=1 0")
+
 
 # Set up the GPIO pins
 GPIO.setmode(GPIO.BCM)
@@ -23,9 +24,9 @@ oled = adafruit_ssd1306.SSD1306_I2C(128, 64, i2c, addr=0x3C, reset=None)
 r = sr.Recognizer()
 mic = sr.Microphone(sample_rate=16000, chunk_size=1024)
 
-# Create a function to take a picture and transcribe speech
-def take_picture():
-    with picamera.PiCamera() as camera:
+# Create a function to take a picture
+def take_picture_and_transcribe():
+    with picamera.PiCamera() as camera, sr.Microphone(sample_rate=16000, chunk_size=1024) as source:
         camera.start_preview()
         time.sleep(1)
         timestamp = time.strftime('%Y%m%d%H%M%S')
@@ -33,55 +34,57 @@ def take_picture():
         camera.capture(filename)
         camera.stop_preview()
         print("Picture taken!")
-    
-    with mic as source:
-        r.adjust_for_ambient_noise(source)  # adjust for ambient noise
-        
-        # transcribe speech using Google Speech Recognition
+        r.adjust_for_ambient_noise(source)
         audio = r.listen(source)
+
         try:
+            # recognize speech using Google Speech Recognition
             text = r.recognize_google(audio)
             print("Speech Transcription:", text)
-        except sr.UnknownValueError:
-            print("Speech could not be transcribed")
-            text = ''
-        except sr.RequestError as e:
-            print("Could not request results from Speech Recognition service; {0}".format(e))
-            text = ''
-            
-    # update OLED display with speech and image information
-    oled.fill(0)
-    draw = ImageDraw.Draw(image)
-    font = ImageFont.load_default()
-    
-    # Update date and time strings
-    now = datetime.datetime.now()
-    new_date_string = now.strftime("%a, %b %d %Y")
-    new_time_string = now.strftime("%I:%M %p")
 
-    # Create message to display on OLED
-    if text:
-        lines = text.split('\n')
-        if len(lines) > 0:
-            if len(lines[0]) > 20:
-                message1 = lines[0][:20]  # truncate first line to 20 characters
-                if len(lines[0]) > 40:
-                    message2 = lines[0][20:40]  # add a new line if first line exceeds 40 characters
-                    if len(lines[0]) > 60:
-                        message3 = lines[0][40:60]  # add a new line if first line exceeds 60 characters
-                        if len(lines[0]) > 80:
-                            message4 = lines[0][60:80]  # add a new line if first line exceeds 80 characters
+        except sr.UnknownValueError:
+            # display error message on OLED display if speech cannot be transcribed
+            text = ''
+            print("Speech could not be transcribed")
+
+        except sr.RequestError as e:
+            # display error message on OLED display if there is an error with the API
+            text = ''
+            print("API error: ", e)
+
+        # update OLED display with speech and image information
+        oled.fill(0)
+        draw = ImageDraw.Draw(image)
+        font = ImageFont.load_default()
+
+        # Update date and time strings
+        now = datetime.datetime.now()
+        new_date_string = now.strftime("%a, %b %d %Y")
+        new_time_string = now.strftime("%I:%M %p")
+
+        # Create message to display on OLED
+        if text:
+            lines = text.split('\n')
+            if len(lines) > 0:
+                if len(lines[0]) > 20:
+                    message1 = lines[0][:20]  # truncate first line to 20 characters
+                    if len(lines[0]) > 40:
+                        message2 = lines[0][20:40]  # add a new line if first line exceeds 40 characters
+                        if len(lines[0]) > 60:
+                            message3 = lines[0][40:60]  # add a new line if first line exceeds 60 characters
+                            if len(lines[0]) > 80:
+                                message4 = lines[0][60:80]  # add a new line if first line exceeds 80 characters
+                            else:
+                                message4 = lines[0][60:]  # add the remaining characters to the last line
                         else:
-                            message4 = lines[0][60:]  # add the remaining characters to the last line
+                            message3 = lines[0][40:]  # add the remaining characters to the last line
                     else:
-                        message3 = lines[0][40:]  # add the remaining characters to the last line
+                        message2 = lines[0][20:]  # add the remaining characters to the last line
                 else:
-                    message2 = lines[0][20:]  # add the remaining characters to the last line
-            else:
-                message1 = lines[0]  # set the first line if it's less than or equal to 20 characters
-        if len(lines) > 1:
-            message3 = lines[1][:20]  # truncate second line to 20 characters
-            if len(lines[1]) > 20:
+                    message1 = lines[0]  # set the first line if it's less than or equal to 20 characters
+            if len(lines) > 1:
+                message3 = lines[1][:20]  # truncate second line to 20 characters
+                if len(lines[1]) > 20:
                     message4 = lines[1][20:]  # add the remaining characters to the last line
 
             # Draw message on OLED display
@@ -91,7 +94,8 @@ def take_picture():
             draw.text((0, 30), message4, font=font, fill=255)
 
             oled.image(image)
-            oled.show()   
+            oled.show()
+
         else:
             message1 = new_date_string
             message2 = new_time_string
